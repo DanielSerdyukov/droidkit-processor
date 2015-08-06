@@ -1,7 +1,11 @@
 package droidkit.processor;
 
-import droidkit.annotation.SQLiteObject;
+import droidkit.annotation.*;
+import droidkit.processor.app.ActivityScanner;
+import droidkit.processor.app.FragmentScanner;
+import droidkit.processor.content.LoaderCallbacksScanner;
 import droidkit.processor.sqlite.SQLiteObjectScanner;
+import droidkit.processor.view.ViewScanner;
 import rx.Observable;
 import rx.functions.Action0;
 import rx.functions.Action1;
@@ -41,11 +45,11 @@ public class AnnotationProcessor extends AbstractProcessor {
         super.init(processingEnv);
         final ProcessingEnv env = new ProcessingEnv(processingEnv);
         mFactories.put(SQLiteObject.class.getName(), new SQLiteObjectFactory(env));
-        /*mFactories.put(OnCreateLoader.class.getName(), new LoaderCallbacksFactory(env));
+        mFactories.put(OnCreateLoader.class.getName(), new LoaderCallbacksFactory(env));
         final UiComponentFactory uiComponentFactory = new UiComponentFactory(env);
         mFactories.put(InjectView.class.getName(), uiComponentFactory);
         mFactories.put(OnClick.class.getName(), uiComponentFactory);
-        mFactories.put(OnActionClick.class.getName(), uiComponentFactory);*/
+        mFactories.put(OnActionClick.class.getName(), uiComponentFactory);
     }
 
     @Override
@@ -70,6 +74,7 @@ public class AnnotationProcessor extends AbstractProcessor {
         return true;
     }
 
+    //region factories
     interface Factory extends Func2<RoundEnvironment, TypeElement, Observable<ElementScanner>> {
 
     }
@@ -151,7 +156,7 @@ public class AnnotationProcessor extends AbstractProcessor {
                     .map(new Func1<Element, ElementScanner>() {
                         @Override
                         public ElementScanner call(Element element) {
-                            return null;
+                            return new LoaderCallbacksScanner(mProcessingEnv, (TypeElement) element);
                         }
                     });
         }
@@ -182,12 +187,26 @@ public class AnnotationProcessor extends AbstractProcessor {
                     .map(new Func1<Element, ElementScanner>() {
                         @Override
                         public ElementScanner call(Element element) {
-                            return null;
+                            if (mProcessingEnv.isSubtype(element.asType(), "android.app.Activity")) {
+                                return new ActivityScanner(mProcessingEnv, (TypeElement) element);
+                            } else if (mProcessingEnv.isSubtype(element.asType(), "android.app.Fragment")) {
+                                return new FragmentScanner(mProcessingEnv, (TypeElement) element);
+                            } else if (mProcessingEnv.isSubtype(element.asType(), "android.view.View")) {
+                                return new ViewScanner(mProcessingEnv, (TypeElement) element);
+                            }
+                            return new ElementScanner(mProcessingEnv, (TypeElement) element) {
+                                @Override
+                                protected void scan() {
+                                    mProcessingEnv.printMessage(Diagnostic.Kind.ERROR, getOrigin(),
+                                            "Expected subtype of Activity, Fragment or View");
+                                }
+                            };
                         }
                     });
         }
 
     }
+    //endregion
 
     //region filters
     private static class GetEnclosingElement implements Func1<Element, Element> {

@@ -18,7 +18,7 @@ public abstract class ElementScanner {
         mOriginType = originType;
     }
 
-    protected ProcessingEnv getEnv() {
+    public ProcessingEnv getEnv() {
         return mEnv;
     }
 
