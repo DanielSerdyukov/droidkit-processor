@@ -1,0 +1,18 @@
+development:
+  script:
+    - gradle -version
+    - gradle clean build
+  tags:
+    - android-sdk
+    - build-tools-latest
+  only:
+    - master
+
+bintray:
+  script:
+    - gradle clean build bintrayUpload
+  tags:
+    - android-sdk
+    - build-tools-latest
+  only:
+    - /^v.*$/
