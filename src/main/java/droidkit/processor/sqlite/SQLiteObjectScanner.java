@@ -40,6 +40,8 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final List<String> mColumnsDef = new ArrayList<>();
 
+    private final List<String> mIndices = new ArrayList<>();
+
     private final Map<String, String> mFieldToColumn = new LinkedHashMap<>();
 
     private final Map<String, String> mSetterToField = new LinkedHashMap<>();
@@ -116,6 +118,10 @@ public class SQLiteObjectScanner extends ElementScanner {
         mColumnsDef.add(def);
     }
 
+    void addIndex(String columnName) {
+        mIndices.add(columnName);
+    }
+
     void putFieldToColumn(String fieldName, String columnName) {
         mFieldToColumn.put(fieldName, columnName);
     }
@@ -162,15 +168,9 @@ public class SQLiteObjectScanner extends ElementScanner {
         } catch (IOException e) {
             Logger.getGlobal().throwing(SQLiteObjectScanner.class.getName(), "brewJava", e);
         }
-        META_BLOCK.addStatement("$T.attachTableInfo($T.class, $S, $S)",
-                ClassName.get("droidkit.sqlite", "SQLiteSchema"),
-                ClassName.get(getOrigin()), mTableName,
-                Strings.join(", ", mColumnsDef));
-        if (mActiveRecord) {
-            META_BLOCK.addStatement("$T.attachHelper($T.class)",
-                    ClassName.get("droidkit.sqlite", "SQLiteProvider"),
-                    ClassName.get(javaFile.packageName, typeSpec.name));
-        }
+        attachTableInfoToSchema();
+        attachIndicesInfoToSchema();
+        attachHelperToSchema(javaFile, typeSpec);
         return ClassName.get(javaFile.packageName, typeSpec.name);
     }
 
@@ -286,6 +286,45 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .endControlFlow()
                 .addStatement("return affectedRows")
                 .build();
+    }
+
+    private void attachTableInfoToSchema() {
+        META_BLOCK.addStatement("$T.attachTableInfo($T.class, $S, $S)",
+                ClassName.get("droidkit.sqlite", "SQLiteSchema"),
+                ClassName.get(getOrigin()), mTableName,
+                Strings.join(", ", mColumnsDef));
+    }
+
+    private void attachIndicesInfoToSchema() {
+        if (mIndices.isEmpty()) {
+            META_BLOCK.addStatement("$T.attachIndicesInfo($S, $T.<$T>emptyList())",
+                    ClassName.get("droidkit.sqlite", "SQLiteSchema"),
+                    mTableName, ClassName.get(Collections.class),
+                    ClassName.get(String.class));
+        } else if (mIndices.size() == 1) {
+            META_BLOCK.addStatement("$T.attachIndicesInfo($S, $T.singletonList($S))",
+                    ClassName.get("droidkit.sqlite", "SQLiteSchema"),
+                    mTableName, ClassName.get(Collections.class),
+                    mIndices.get(0));
+        } else {
+            META_BLOCK.addStatement("$T.attachIndicesInfo($S, $T.asList($L))",
+                    ClassName.get("droidkit.sqlite", "SQLiteSchema"),
+                    mTableName, ClassName.get(Arrays.class),
+                    Strings.transformAndJoin(", ", mIndices, new Func1<String, String>() {
+                        @Override
+                        public String call(String columnName) {
+                            return '"' + columnName + '"';
+                        }
+                    }));
+        }
+    }
+
+    private void attachHelperToSchema(JavaFile javaFile, TypeSpec typeSpec) {
+        if (mActiveRecord) {
+            META_BLOCK.addStatement("$T.attachHelper($T.class)",
+                    ClassName.get("droidkit.sqlite", "SQLiteProvider"),
+                    ClassName.get(javaFile.packageName, typeSpec.name));
+        }
     }
     //endregion
 

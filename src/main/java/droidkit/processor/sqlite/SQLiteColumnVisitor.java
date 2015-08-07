@@ -1,13 +1,12 @@
 package droidkit.processor.sqlite;
 
-import java.lang.annotation.Annotation;
-
-import javax.lang.model.element.VariableElement;
-import javax.tools.Diagnostic;
-
 import droidkit.annotation.SQLiteColumn;
 import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
+
+import javax.lang.model.element.VariableElement;
+import javax.tools.Diagnostic;
+import java.lang.annotation.Annotation;
 
 /**
  * @author Daniel Serdyukov
@@ -30,6 +29,9 @@ class SQLiteColumnVisitor implements FieldVisitor {
         scanner.putFieldToColumn(fieldName, columnName);
         scanner.putFieldToSetter(fieldName, column.setter());
         scanner.addInstantiateStatement(conversion.javaType(fieldName, columnName, field.asType()));
+        if (column.index()) {
+            scanner.addIndex(columnName);
+        }
     }
 
     private TypeConversion getTypeConversion(ProcessingEnv processingEnv, VariableElement field) {

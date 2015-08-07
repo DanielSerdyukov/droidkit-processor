@@ -16,4 +16,6 @@ public @interface SQLiteColumn {
 
     String setter() default "";
 
+    boolean index() default false;
+
 }
