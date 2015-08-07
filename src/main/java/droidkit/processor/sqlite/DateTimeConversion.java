@@ -2,16 +2,15 @@ package droidkit.processor.sqlite;
 
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
+import droidkit.processor.ProcessingEnv;
 
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
 
-import droidkit.processor.ProcessingEnv;
-
 /**
  * @author Daniel Serdyukov
  */
-class DateTimeConversion extends DoubleConversion {
+class DateTimeConversion extends LongConversion {
 
     @Override
     public boolean isAcceptable(ProcessingEnv processingEnv, VariableElement field) {
