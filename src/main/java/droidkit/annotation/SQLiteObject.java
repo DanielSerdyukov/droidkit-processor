@@ -16,4 +16,6 @@ public @interface SQLiteObject {
 
     boolean activeRecord() default false;
 
+    String[] uniqueOn() default {};
+
 }

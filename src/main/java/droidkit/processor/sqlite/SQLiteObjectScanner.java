@@ -52,6 +52,8 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final boolean mActiveRecord;
 
+    private final List<String> mUniqueOn;
+
     private String mPrimaryKey;
 
     public SQLiteObjectScanner(ProcessingEnv env, TypeElement originType) {
@@ -59,6 +61,7 @@ public class SQLiteObjectScanner extends ElementScanner {
         final SQLiteObject annotation = originType.getAnnotation(SQLiteObject.class);
         mTableName = annotation.value();
         mActiveRecord = annotation.activeRecord();
+        mUniqueOn = Arrays.asList(annotation.uniqueOn());
     }
 
     public static void brewMetaClass(ProcessingEnv env) {
@@ -82,6 +85,9 @@ public class SQLiteObjectScanner extends ElementScanner {
     @Override
     protected void scan() {
         getOrigin().accept(new ElementScannerImpl(), null);
+        if (!mUniqueOn.isEmpty()) {
+            mColumnsDef.add("UNIQUE(" + Strings.join(", ", mUniqueOn) + ")");
+        }
         final ClassName className = brewJava();
         if (mActiveRecord) {
             Observable.from(mMethods)
