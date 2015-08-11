@@ -1,19 +1,14 @@
 package droidkit.processor;
 
-import com.squareup.javapoet.ClassName;
-import com.squareup.javapoet.CodeBlock;
-import com.squareup.javapoet.JavaFile;
-import com.squareup.javapoet.MethodSpec;
-import com.squareup.javapoet.TypeSpec;
-
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.io.Writer;
-import java.util.logging.Logger;
+import com.squareup.javapoet.*;
 
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.TypeElement;
 import javax.tools.JavaFileObject;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.Writer;
+import java.util.logging.Logger;
 
 /**
  * @author Daniel Serdyukov
@@ -28,6 +23,7 @@ public class ViewInjector {
 
     public ClassName brewJava(ProcessingEnv env, TypeElement originType) {
         final TypeSpec typeSpec = TypeSpec.classBuilder(originType.getSimpleName() + "$ViewInjector")
+                .addAnnotation(ClassName.get("android.support.annotation", "Keep"))
                 .addModifiers(Modifier.PUBLIC)
                 .addOriginatingElement(originType)
                 .addMethod(activityInject(originType))

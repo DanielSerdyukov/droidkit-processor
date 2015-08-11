@@ -68,6 +68,7 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     public static void brewMetaClass(ProcessingEnv env) {
         final TypeSpec typeSpec = TypeSpec.classBuilder("SQLiteMetaData")
+                .addAnnotation(ClassName.get("android.support.annotation", "Keep"))
                 .addModifiers(Modifier.PUBLIC)
                 .addStaticBlock(META_BLOCK.build())
                 .build();
@@ -150,6 +151,7 @@ public class SQLiteObjectScanner extends ElementScanner {
     //region implementation
     private ClassName brewJava() {
         final TypeSpec typeSpec = TypeSpec.classBuilder(getOrigin().getSimpleName() + "$SQLiteHelper")
+                .addAnnotation(ClassName.get("android.support.annotation", "Keep"))
                 .addModifiers(Modifier.PUBLIC)
                 .addField(clientRef())
                 .addMethod(attachInfo())
@@ -173,7 +175,7 @@ public class SQLiteObjectScanner extends ElementScanner {
             Logger.getGlobal().throwing(SQLiteObjectScanner.class.getName(), "brewJava", e);
         }
         attachTableInfoToSchema();
-        //attachIndicesInfoToSchema();
+        attachIndicesInfoToSchema();
         attachHelperToSchema(javaFile, typeSpec);
         return ClassName.get(javaFile.packageName, typeSpec.name);
     }
