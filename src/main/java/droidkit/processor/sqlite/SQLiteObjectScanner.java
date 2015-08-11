@@ -110,6 +110,10 @@ public class SQLiteObjectScanner extends ElementScanner {
         }
     }
 
+    String getTableName() {
+        return mTableName;
+    }
+
     void setPrimaryKey(String primaryKey) {
         mPrimaryKey = primaryKey;
     }
@@ -169,7 +173,7 @@ public class SQLiteObjectScanner extends ElementScanner {
             Logger.getGlobal().throwing(SQLiteObjectScanner.class.getName(), "brewJava", e);
         }
         attachTableInfoToSchema();
-        attachIndicesInfoToSchema();
+        //attachIndicesInfoToSchema();
         attachHelperToSchema(javaFile, typeSpec);
         return ClassName.get(javaFile.packageName, typeSpec.name);
     }

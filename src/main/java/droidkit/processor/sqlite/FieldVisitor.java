@@ -1,12 +1,11 @@
 package droidkit.processor.sqlite;
 
+import droidkit.processor.ProcessingEnv;
+
+import javax.lang.model.element.VariableElement;
 import java.lang.annotation.Annotation;
 import java.util.Arrays;
 import java.util.List;
-
-import javax.lang.model.element.VariableElement;
-
-import droidkit.processor.ProcessingEnv;
 
 /**
  * @author Daniel Serdyukov
@@ -15,7 +14,8 @@ interface FieldVisitor {
 
     List<FieldVisitor> SUPPORTED = Arrays.asList(
             new SQLitePkVisitor(),
-            new SQLiteColumnVisitor()
+            new SQLiteColumnVisitor()/*,
+            new SQLiteRelationVisitor()*/
     );
 
     Annotation getAnnotation(ProcessingEnv processingEnv, VariableElement field);

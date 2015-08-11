@@ -8,10 +8,8 @@ import java.lang.annotation.Target;
 /**
  * @author Daniel Serdyukov
  */
-@Target({ElementType.TYPE})
+@Target({ElementType.FIELD})
 @Retention(RetentionPolicy.SOURCE)
-public @interface InjectLayout {
-
-    int value();
+public @interface SQLiteRelation {
 
 }
