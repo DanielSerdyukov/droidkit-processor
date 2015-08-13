@@ -3,6 +3,7 @@ package droidkit.processor.sqlite;
 import droidkit.annotation.SQLiteColumn;
 import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
+import rx.functions.Func0;
 
 import javax.lang.model.element.VariableElement;
 import javax.tools.Diagnostic;
@@ -19,9 +20,10 @@ class SQLiteColumnVisitor implements FieldVisitor {
     }
 
     @Override
-    public void visit(SQLiteObjectScanner scanner, ProcessingEnv processingEnv, VariableElement field,
+    public void visit(final SQLiteObjectScanner scanner, ProcessingEnv processingEnv, VariableElement field,
                       Annotation annotation) {
         final SQLiteColumn column = (SQLiteColumn) annotation;
+        final String tableName = scanner.getTableName();
         final String fieldName = field.getSimpleName().toString();
         final String columnName = getColumnName(fieldName, column.value());
         final TypeConversion conversion = getTypeConversion(processingEnv, field);
@@ -30,7 +32,13 @@ class SQLiteColumnVisitor implements FieldVisitor {
         scanner.putFieldToSetter(fieldName, column.setter());
         scanner.addInstantiateStatement(conversion.javaType(fieldName, columnName, field.asType()));
         if (column.index()) {
-            scanner.addIndex(columnName);
+            scanner.createIndex(new Func0<String>() {
+                @Override
+                public String call() {
+                    return "CREATE INDEX IF NOT EXISTS idx_" + tableName + "_" + columnName +
+                            " ON " + tableName + "(" + columnName + ")";
+                }
+            });
         }
     }
 

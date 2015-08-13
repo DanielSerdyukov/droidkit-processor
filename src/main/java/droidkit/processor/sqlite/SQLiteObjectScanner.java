@@ -14,6 +14,7 @@ import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
 import rx.Observable;
 import rx.functions.Action1;
+import rx.functions.Func0;
 import rx.functions.Func1;
 
 import javax.lang.model.element.ExecutableElement;
@@ -40,13 +41,19 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final List<String> mColumnsDef = new ArrayList<>();
 
-    private final List<String> mIndices = new ArrayList<>();
+    private final List<Func0<String>> mIndices = new ArrayList<>();
+
+    private final List<Func0<String>> mCreateRelations = new ArrayList<>();
+
+    private final List<Func0<String>> mDropRelations = new ArrayList<>();
 
     private final Map<String, String> mFieldToColumn = new LinkedHashMap<>();
 
     private final Map<String, String> mSetterToField = new LinkedHashMap<>();
 
     private final CodeBlock.Builder mInstantiateBlock = CodeBlock.builder();
+
+    private final List<Action1<CodeBlock.Builder>> mSaveActions = new ArrayList<>();
 
     private final List<ExecutableElement> mMethods = new ArrayList<>();
 
@@ -115,16 +122,16 @@ public class SQLiteObjectScanner extends ElementScanner {
         return mTableName;
     }
 
+    String getPrimaryKey() {
+        return mPrimaryKey;
+    }
+
     void setPrimaryKey(String primaryKey) {
         mPrimaryKey = primaryKey;
     }
 
     void addColumnDef(String def) {
         mColumnsDef.add(def);
-    }
-
-    void addIndex(String columnName) {
-        mIndices.add(columnName);
     }
 
     void putFieldToColumn(String fieldName, String columnName) {
@@ -148,6 +155,22 @@ public class SQLiteObjectScanner extends ElementScanner {
         mInstantiateBlock.add(codeBlock);
     }
 
+    void saveAction(Action1<CodeBlock.Builder> action) {
+        mSaveActions.add(action);
+    }
+
+    void createIndex(Func0<String> index) {
+        mIndices.add(index);
+    }
+
+    void createRelation(Func0<String> index) {
+        mCreateRelations.add(index);
+    }
+
+    void dropRelation(Func0<String> index) {
+        mDropRelations.add(index);
+    }
+
     //region implementation
     private ClassName brewJava() {
         final TypeSpec typeSpec = TypeSpec.classBuilder(getOrigin().getSimpleName() + "$SQLiteHelper")
@@ -162,7 +185,7 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .addMethod(dropRelationTables())
                 .addMethod(attachInfo())
                 .addMethod(instantiate())
-                .addMethod(insert())
+                .addMethod(save())
                 .addMethod(updateWithClient())
                 .addMethod(updateIfActive())
                 .addMethod(remove())
@@ -210,17 +233,23 @@ public class SQLiteObjectScanner extends ElementScanner {
     }
 
     private MethodSpec createIndices() {
-        return MethodSpec.methodBuilder("createIndices")
+        final MethodSpec.Builder builder = MethodSpec.methodBuilder("createIndices")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db")
-                .build();
+                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db");
+        for (final Func0<String> index : mIndices) {
+            builder.addStatement("db.compileStatement($S).execute()", index.call());
+        }
+        return builder.build();
     }
 
     private MethodSpec createRelationTables() {
-        return MethodSpec.methodBuilder("createRelationTables")
+        final MethodSpec.Builder builder = MethodSpec.methodBuilder("createRelationTables")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db")
-                .build();
+                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db");
+        for (final Func0<String> index : mCreateRelations) {
+            builder.addStatement("db.compileStatement($S).execute()", index.call());
+        }
+        return builder.build();
     }
 
     private MethodSpec createTriggers() {
@@ -239,10 +268,13 @@ public class SQLiteObjectScanner extends ElementScanner {
     }
 
     private MethodSpec dropRelationTables() {
-        return MethodSpec.methodBuilder("dropRelationTables")
+        final MethodSpec.Builder builder = MethodSpec.methodBuilder("dropRelationTables")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db")
-                .build();
+                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db");
+        for (final Func0<String> index : mDropRelations) {
+            builder.addStatement("db.compileStatement($S).execute()", index.call());
+        }
+        return builder.build();
     }
 
     private MethodSpec instantiate() {
@@ -256,8 +288,12 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .build();
     }
 
-    private MethodSpec insert() {
-        return MethodSpec.methodBuilder("insert")
+    private MethodSpec save() {
+        final CodeBlock.Builder saveActions = CodeBlock.builder();
+        for (final Action1<CodeBlock.Builder> action : mSaveActions) {
+            action.call(saveActions);
+        }
+        return MethodSpec.methodBuilder("save")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .addParameter(ClassName.get("droidkit.sqlite", "SQLiteClient"), "client")
                 .addParameter(ClassName.get(getOrigin()), "object")
@@ -275,6 +311,7 @@ public class SQLiteObjectScanner extends ElementScanner {
                                 Strings.join(", ", Collections.nCopies(mFieldToColumn.size() - 1, "?"))),
                         Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField(), 1))
                 .endControlFlow()
+                .addCode(saveActions.build())
                 .addStatement("$T.notifyChange($T.class)",
                         ClassName.get("droidkit.sqlite", "SQLiteSchema"),
                         ClassName.get(getOrigin()))

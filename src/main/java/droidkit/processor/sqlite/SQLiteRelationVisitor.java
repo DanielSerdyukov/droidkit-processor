@@ -5,7 +5,10 @@ import com.squareup.javapoet.CodeBlock;
 import droidkit.annotation.SQLiteObject;
 import droidkit.annotation.SQLiteRelation;
 import droidkit.processor.ProcessingEnv;
-import rx.functions.Action3;
+import droidkit.processor.Strings;
+import rx.functions.Action1;
+import rx.functions.Func0;
+import rx.functions.Func3;
 
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
@@ -13,6 +16,7 @@ import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.SimpleElementVisitor7;
 import javax.lang.model.util.SimpleTypeVisitor7;
+import javax.tools.Diagnostic;
 import java.lang.annotation.Annotation;
 import java.util.List;
 import java.util.Locale;
@@ -42,11 +46,29 @@ class SQLiteRelationVisitor implements FieldVisitor {
                 return new UnsupportedRelation();
             }
         }, null);
-        System.out.println("SQLiteRelationVisitor.visit:46 " + relation);
-        relation.call(scanner, env, field);
+        final String relTable = relation.call(scanner, env, field);
+        if (!Strings.isNullOrEmpty(relTable)) {
+            final String table = scanner.getTableName();
+            scanner.createRelation(new Func0<String>() {
+                @Override
+                public String call() {
+                    return String.format(Locale.US, "CREATE TABLE IF NOT EXISTS %1$s_%2$s(" +
+                                    "%1$s_id INTEGER REFERENCES %1$s(_id) ON DELETE CASCADE ON UPDATE CASCADE, " +
+                                    "%2$s_id INTEGER REFERENCES %2$s(_id) ON DELETE CASCADE ON UPDATE CASCADE, " +
+                                    "UNIQUE (%1$s_id, %2$s_id) ON CONFLICT IGNORE);",
+                            table, relTable);
+                }
+            });
+            scanner.dropRelation(new Func0<String>() {
+                @Override
+                public String call() {
+                    return String.format(Locale.US, "DROP TABLE IF EXISTS %s_%s;", table, relTable);
+                }
+            });
+        }
     }
 
-    private interface Relation extends Action3<SQLiteObjectScanner, ProcessingEnv, VariableElement> {
+    private interface Relation extends Func3<SQLiteObjectScanner, ProcessingEnv, VariableElement, String> {
 
     }
 
@@ -62,7 +84,7 @@ class SQLiteRelationVisitor implements FieldVisitor {
         }
 
         @Override
-        public void call(SQLiteObjectScanner scanner, ProcessingEnv env, VariableElement field) {
+        public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
             scanner.addInstantiateStatement(CodeBlock.builder()
                     .addStatement("object.$L = $T.getFirst($T.rawQuery($T.class, $S, $T.getLong(cursor, $S)))",
                             field.getSimpleName(),
@@ -75,6 +97,17 @@ class SQLiteRelationVisitor implements FieldVisitor {
                                     mRelTable, scanner.getTableName()),
                             ClassName.get("droidkit.util", "Cursors"), "_id")
                     .build());
+            scanner.saveAction(new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, object.$L)",
+                            ClassName.get(mRelType), field.getSimpleName());
+                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
+                                    "INSERT INTO %1$s_%2$s VALUES(? , ?);", scanner.getTableName(), mRelTable),
+                            scanner.getPrimaryKey());
+                }
+            });
+            return mRelTable;
         }
 
     }
@@ -91,7 +124,7 @@ class SQLiteRelationVisitor implements FieldVisitor {
         }
 
         @Override
-        public void call(SQLiteObjectScanner scanner, ProcessingEnv env, VariableElement field) {
+        public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
             scanner.addInstantiateStatement(CodeBlock.builder()
                     .addStatement("object.$L = $T.rawQuery($T.class, $S, $T.getLong(cursor, $S))",
                             field.getSimpleName(),
@@ -103,6 +136,21 @@ class SQLiteRelationVisitor implements FieldVisitor {
                                     mRelTable, scanner.getTableName()),
                             ClassName.get("droidkit.util", "Cursors"), "_id")
                     .build());
+            scanner.saveAction(new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.beginControlFlow("for (final $T relEntry : object.$L)",
+                            ClassName.get(mRelType),
+                            field.getSimpleName());
+                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, relEntry)",
+                            ClassName.get(mRelType));
+                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
+                                    "INSERT INTO %1$s_%2$s VALUES(? , ?);", scanner.getTableName(), mRelTable),
+                            scanner.getPrimaryKey());
+                    builder.endControlFlow();
+                }
+            });
+            return mRelTable;
         }
 
     }
@@ -110,8 +158,9 @@ class SQLiteRelationVisitor implements FieldVisitor {
     private static class UnsupportedRelation implements Relation {
 
         @Override
-        public void call(SQLiteObjectScanner scanner, ProcessingEnv env, VariableElement field) {
-
+        public String call(SQLiteObjectScanner scanner, ProcessingEnv env, VariableElement field) {
+            env.printMessage(Diagnostic.Kind.ERROR, field, "Unexpected relation type");
+            return null;
         }
 
     }
