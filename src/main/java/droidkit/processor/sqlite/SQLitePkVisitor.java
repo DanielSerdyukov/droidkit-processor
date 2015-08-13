@@ -23,18 +23,16 @@ class SQLitePkVisitor implements FieldVisitor {
     }
 
     @Override
-    public void visit(SQLiteObjectScanner scanner, ProcessingEnv processingEnv, VariableElement field,
+    public void visit(final SQLiteObjectScanner scanner, final ProcessingEnv env, VariableElement field,
                       Annotation annotation) {
         if (TypeKind.LONG == field.asType().getKind()) {
             final SQLitePk pk = (SQLitePk) annotation;
             final String fieldName = field.getSimpleName().toString();
             scanner.setPrimaryKey(fieldName);
             scanner.addColumnDef(ROWID + PRIMARY_KEY + ConflictResolution.get(pk.value()));
-            scanner.putFieldToColumn(fieldName, ROWID);
-            scanner.putFieldToSetter(fieldName, pk.setter());
             scanner.instantiateAction(new LongConversion().convertToJavaType(fieldName, ROWID, field.asType()));
         } else {
-            processingEnv.printMessage(Diagnostic.Kind.ERROR, field, "SQLitePk must be long");
+            env.printMessage(Diagnostic.Kind.ERROR, field, "SQLitePk must be long");
         }
     }
 

@@ -6,10 +6,9 @@ import droidkit.annotation.SQLiteObject;
 import droidkit.annotation.SQLiteRelation;
 import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
-import rx.functions.Action1;
-import rx.functions.Func0;
-import rx.functions.Func3;
+import rx.functions.*;
 
+import javax.lang.model.element.Name;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.DeclaredType;
@@ -76,42 +75,25 @@ class SQLiteRelationVisitor implements FieldVisitor {
 
         private final TypeMirror mRelType;
 
-        private final String mRelTable;
+        private final String mRelTypeTable;
 
         public OneToOneRelation(TypeMirror relType, String relTable) {
             mRelType = relType;
-            mRelTable = relTable;
+            mRelTypeTable = relTable;
         }
 
         @Override
         public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
-            scanner.instantiateAction(new Action1<CodeBlock.Builder>() {
-                @Override
-                public void call(CodeBlock.Builder builder) {
-                    builder.addStatement("object.$L = $T.getFirst($T.rawQuery($T.class, $S, $T.getLong(cursor, $S)))",
-                            field.getSimpleName(),
-                            ClassName.get("droidkit.util", "Lists"),
-                            ClassName.get("droidkit.sqlite", "SQLite"),
-                            ClassName.get(mRelType),
-                            String.format(Locale.US, "SELECT %1$s.* FROM %1$s, %2$s_%1$s" +
-                                            " WHERE %1$s._id=%2$s_%1$s.%1$s_id" +
-                                            " AND %2$s_%1$s.%2$s_id = ?;",
-                                    mRelTable, scanner.getTableName()),
-                            ClassName.get("droidkit.util", "Cursors"), "_id")
-                            .build();
-                }
-            });
-            scanner.saveAction(new Action1<CodeBlock.Builder>() {
-                @Override
-                public void call(CodeBlock.Builder builder) {
-                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, object.$L)",
-                            ClassName.get(mRelType), field.getSimpleName());
-                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
-                                    "INSERT INTO %1$s_%2$s VALUES(? , ?);", scanner.getTableName(), mRelTable),
-                            scanner.getPrimaryKey());
-                }
-            });
-            return mRelTable;
+            final String relTable = scanner.getTableName() + "_" + mRelTypeTable;
+            final String relQuery = String.format(Locale.US, "SELECT %1$s.* FROM %1$s, %3$s" +
+                            " WHERE %1$s._id=%3$s.%1$s_id" +
+                            " AND %3$s.%2$s_id = ?;",
+                    mRelTypeTable, scanner.getTableName(), relTable);
+            scanner.instantiateAction(new OneToOneRelationInstantiateFunc()
+                    .call(field.getSimpleName(), mRelType, relQuery));
+            scanner.saveAction(new OneToOneRelationSaveFunc().call(field.getSimpleName(), mRelType, relTable,
+                    scanner.getPrimaryKey()));
+            return mRelTypeTable;
         }
 
     }
@@ -120,45 +102,25 @@ class SQLiteRelationVisitor implements FieldVisitor {
 
         private final TypeMirror mRelType;
 
-        private final String mRelTable;
+        private final String mRelTypeTable;
 
-        public OneToManyRelation(TypeMirror relType, String relTable) {
+        public OneToManyRelation(TypeMirror relType, String relTypeTable) {
             mRelType = relType;
-            mRelTable = relTable;
+            mRelTypeTable = relTypeTable;
         }
 
         @Override
         public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
-            scanner.instantiateAction(new Action1<CodeBlock.Builder>() {
-                @Override
-                public void call(CodeBlock.Builder builder) {
-                    builder.addStatement("object.$L = $T.rawQuery($T.class, $S, $T.getLong(cursor, $S))",
-                            field.getSimpleName(),
-                            ClassName.get("droidkit.sqlite", "SQLite"),
-                            ClassName.get(mRelType),
-                            String.format(Locale.US, "SELECT %1$s.* FROM %1$s, %2$s_%1$s" +
-                                            " WHERE %1$s._id=%2$s_%1$s.%1$s_id" +
-                                            " AND %2$s_%1$s.%2$s_id = ?;",
-                                    mRelTable, scanner.getTableName()),
-                            ClassName.get("droidkit.util", "Cursors"), "_id")
-                            .build();
-                }
-            });
-            scanner.saveAction(new Action1<CodeBlock.Builder>() {
-                @Override
-                public void call(CodeBlock.Builder builder) {
-                    builder.beginControlFlow("for (final $T relEntry : object.$L)",
-                            ClassName.get(mRelType),
-                            field.getSimpleName());
-                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, relEntry)",
-                            ClassName.get(mRelType));
-                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
-                                    "INSERT INTO %1$s_%2$s VALUES(? , ?);", scanner.getTableName(), mRelTable),
-                            scanner.getPrimaryKey());
-                    builder.endControlFlow();
-                }
-            });
-            return mRelTable;
+            final String relTable = scanner.getTableName() + "_" + mRelTypeTable;
+            final String relQuery = String.format(Locale.US, "SELECT %1$s.* FROM %1$s, %3$s" +
+                            " WHERE %1$s._id=%3$s.%1$s_id" +
+                            " AND %3$s.%2$s_id = ?;",
+                    mRelTypeTable, scanner.getTableName(), relTable);
+            scanner.instantiateAction(new OneToManyRelationInstantiateFunc()
+                    .call(field.getSimpleName(), mRelType, relQuery));
+            scanner.saveAction(new OneToManyRelationSaveFunc()
+                    .call(field.getSimpleName(), mRelType, relTable, relQuery, scanner.getPrimaryKey()));
+            return mRelTypeTable;
         }
 
     }
@@ -195,6 +157,93 @@ class SQLiteRelationVisitor implements FieldVisitor {
                 return new OneToManyRelation(t, annotation.value());
             }
         }
+    }
+
+    private static class OneToOneRelationInstantiateFunc
+            implements Func3<Name, TypeMirror, String, Action1<CodeBlock.Builder>> {
+
+        @Override
+        public Action1<CodeBlock.Builder> call(final Name fieldName, final TypeMirror relType, final String query) {
+            return new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.addStatement("object.$L = $T.getFirst($T.rawQuery(" +
+                                    "$T.class, $S, $T.getLong(cursor, $S)), null)",
+                            fieldName, ClassName.get("droidkit.util", "Lists"),
+                            ClassName.get("droidkit.sqlite", "SQLite"),
+                            ClassName.get(relType), query,
+                            ClassName.get("droidkit.util", "Cursors"), "_id");
+                }
+            };
+        }
+
+    }
+
+    private static class OneToOneRelationSaveFunc
+            implements Func4<Name, TypeMirror, String, Func0<String>, Action1<CodeBlock.Builder>> {
+
+        @Override
+        public Action1<CodeBlock.Builder> call(final Name fieldName, final TypeMirror relType,
+                                               final String relTable, final Func0<String> primaryKey) {
+            return new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.beginControlFlow("if(object.$L != null)", fieldName);
+                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, object.$L)",
+                            ClassName.get(relType), fieldName);
+                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
+                            "INSERT INTO %s VALUES(? , ?);", relTable), primaryKey.call());
+                    builder.endControlFlow();
+                }
+            };
+        }
+
+    }
+
+    private static class OneToManyRelationInstantiateFunc
+            implements Func3<Name, TypeMirror, String, Action1<CodeBlock.Builder>> {
+
+        @Override
+        public Action1<CodeBlock.Builder> call(final Name fieldName, final TypeMirror relType, final String query) {
+            return new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.addStatement("object.$L = $T.rawQuery($T.class, $S, $T.getLong(cursor, $S))",
+                            fieldName, ClassName.get("droidkit.sqlite", "SQLite"),
+                            ClassName.get(relType), query, ClassName.get("droidkit.util", "Cursors"), "_id");
+                }
+            };
+        }
+
+    }
+
+    private static class OneToManyRelationSaveFunc
+            implements Func5<Name, TypeMirror, String, String, Func0<String>, Action1<CodeBlock.Builder>> {
+
+        @Override
+        public Action1<CodeBlock.Builder> call(final Name fieldName, final TypeMirror relType,
+                                               final String relTable, final String query,
+                                               final Func0<String> primaryKey) {
+            return new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.beginControlFlow("if(object.$L != null)", fieldName);
+                    builder.beginControlFlow("for (final $T relEntry : object.$L)",
+                            ClassName.get(relType),
+                            fieldName);
+                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, relEntry)",
+                            ClassName.get(relType));
+                    builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
+                            "INSERT INTO %s VALUES(? , ?);", relTable), primaryKey.call());
+                    builder.endControlFlow();
+                    builder.addStatement("object.$L = $T.rawQuery($T.class, $S, object.$L)",
+                            fieldName, ClassName.get("droidkit.sqlite", "SQLite"),
+                            ClassName.get(relType), query, primaryKey.call());
+                    builder.endControlFlow();
+                }
+            };
+        }
+
     }
 
 }

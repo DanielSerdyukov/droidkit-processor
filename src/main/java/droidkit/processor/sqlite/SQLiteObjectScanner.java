@@ -2,17 +2,11 @@ package droidkit.processor.sqlite;
 
 import com.squareup.javapoet.*;
 import com.sun.tools.javac.code.Flags;
-import com.sun.tools.javac.processing.JavacProcessingEnvironment;
 import com.sun.tools.javac.tree.JCTree;
-import com.sun.tools.javac.tree.TreeMaker;
-import com.sun.tools.javac.tree.TreeTranslator;
-import com.sun.tools.javac.util.Names;
 import droidkit.annotation.SQLiteObject;
 import droidkit.processor.ElementScanner;
-import droidkit.processor.JCLiterals;
 import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
-import rx.Observable;
 import rx.functions.Action1;
 import rx.functions.Func0;
 import rx.functions.Func1;
@@ -49,13 +43,11 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final Map<String, String> mFieldToColumn = new LinkedHashMap<>();
 
-    private final Map<String, String> mSetterToField = new LinkedHashMap<>();
-
     private final List<Action1<CodeBlock.Builder>> mInstantiateActions = new ArrayList<>();
 
     private final List<Action1<CodeBlock.Builder>> mSaveActions = new ArrayList<>();
 
-    private final List<ExecutableElement> mMethods = new ArrayList<>();
+    private final Map<String, Action1<ExecutableElement>> mSetterActions = new LinkedHashMap<>();
 
     private final String mTableName;
 
@@ -63,7 +55,7 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final List<String> mUniqueOn;
 
-    private String mPrimaryKey;
+    private Func0<String> mPrimaryKey;
 
     public SQLiteObjectScanner(ProcessingEnv env, TypeElement originType) {
         super(env, originType);
@@ -94,40 +86,38 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     @Override
     protected void scan() {
-        getOrigin().accept(new ElementScannerImpl(), null);
+        getOrigin().accept(new FieldScanner(), null);
+        getOrigin().accept(new RelationScanner(), null);
+        getOrigin().accept(new MethodScanner(), null);
         if (!mUniqueOn.isEmpty()) {
             mColumnsDef.add("UNIQUE(" + Strings.join(", ", mUniqueOn) + ")");
         }
-        final ClassName className = brewJava();
-        if (mActiveRecord) {
-            Observable.from(mMethods)
-                    .filter(new SetterOnly(mSetterToField))
-                    .subscribe(new Action1<ExecutableElement>() {
-                        @Override
-                        public void call(ExecutableElement method) {
-                            final String fieldName = mSetterToField.get(method.getSimpleName().toString());
-                            getEnv().getTree(method).accept(new SetterTranslator(
-                                    getEnv().getJavacEnv(),
-                                    className,
-                                    fieldName,
-                                    mFieldToColumn.get(fieldName),
-                                    mPrimaryKey
-                            ));
-                        }
-                    });
-        }
+        brewJava();
+    }
+
+    String getPackageName() {
+        return getOrigin().getEnclosingElement().toString();
+    }
+
+    String getClassName() {
+        return getOrigin().getSimpleName() + "$SQLiteHelper";
     }
 
     String getTableName() {
         return mTableName;
     }
 
-    String getPrimaryKey() {
+    Func0<String> getPrimaryKey() {
         return mPrimaryKey;
     }
 
-    void setPrimaryKey(String primaryKey) {
-        mPrimaryKey = primaryKey;
+    void setPrimaryKey(final String primaryKey) {
+        mPrimaryKey = new Func0<String>() {
+            @Override
+            public String call() {
+                return primaryKey;
+            }
+        };
     }
 
     void addColumnDef(String def) {
@@ -138,17 +128,8 @@ public class SQLiteObjectScanner extends ElementScanner {
         mFieldToColumn.put(fieldName, columnName);
     }
 
-    void putFieldToSetter(String fieldName, String setterName) {
-        if (setterName.isEmpty()) {
-            if ('m' == fieldName.charAt(0)
-                    && Character.isUpperCase(fieldName.charAt(1))) {
-                mSetterToField.put("set" + Strings.capitalize(fieldName.substring(1)), fieldName);
-            } else {
-                mSetterToField.put("set" + Strings.capitalize(fieldName), fieldName);
-            }
-        } else {
-            mSetterToField.put(setterName, fieldName);
-        }
+    void setterAction(String methodName, Action1<ExecutableElement> action) {
+        mSetterActions.put(methodName, action);
     }
 
     void instantiateAction(Action1<CodeBlock.Builder> action) {
@@ -173,7 +154,7 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     //region implementation
     private ClassName brewJava() {
-        final TypeSpec typeSpec = TypeSpec.classBuilder(getOrigin().getSimpleName() + "$SQLiteHelper")
+        final TypeSpec typeSpec = TypeSpec.classBuilder(getClassName())
                 .addAnnotation(ClassName.get("android.support.annotation", "Keep"))
                 .addModifiers(Modifier.PUBLIC)
                 .addField(clientRef())
@@ -191,7 +172,7 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .addMethod(remove())
                 .addOriginatingElement(getOrigin())
                 .build();
-        final JavaFile javaFile = JavaFile.builder(getOrigin().getEnclosingElement().toString(), typeSpec)
+        final JavaFile javaFile = JavaFile.builder(getPackageName(), typeSpec)
                 .addFileComment(AUTO_GENERATED_FILE)
                 .build();
         try {
@@ -302,24 +283,24 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .addParameter(ClassName.get("droidkit.sqlite", "SQLiteClient"), "client")
                 .addParameter(ClassName.get(getOrigin()), "object")
                 .returns(TypeName.LONG)
-                .beginControlFlow("if (object.$L > 0)", mPrimaryKey)
-                .addStatement("object.$L = client.executeInsert($S, $L)", mPrimaryKey,
-                        String.format(Locale.US, "INSERT INTO %s(%s) VALUES(%s);", mTableName,
+                .beginControlFlow("if (object.$L > 0)", getPk())
+                .addStatement("object.$1L = client.executeInsert($2S, object.$1L, $3L)", getPk(),
+                        String.format(Locale.US, "INSERT INTO %s(_id, %s) VALUES(?, %s);", mTableName,
                                 Strings.join(", ", mFieldToColumn.values()),
                                 Strings.join(", ", Collections.nCopies(mFieldToColumn.size(), "?"))),
                         Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField()))
                 .nextControlFlow("else")
-                .addStatement("object.$L = client.executeInsert($S, $L)", mPrimaryKey,
+                .addStatement("object.$L = client.executeInsert($S, $L)", getPk(),
                         String.format(Locale.US, "INSERT INTO %s(%s) VALUES(%s);", mTableName,
-                                Strings.join(", ", mFieldToColumn.values(), 1),
-                                Strings.join(", ", Collections.nCopies(mFieldToColumn.size() - 1, "?"))),
-                        Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField(), 1))
+                                Strings.join(", ", mFieldToColumn.values()),
+                                Strings.join(", ", Collections.nCopies(mFieldToColumn.size(), "?"))),
+                        Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField()))
                 .endControlFlow()
                 .addCode(saveActions.build())
                 .addStatement("$T.notifyChange($T.class)",
                         ClassName.get("droidkit.sqlite", "SQLiteSchema"),
                         ClassName.get(getOrigin()))
-                .addStatement("return object.$L", mPrimaryKey)
+                .addStatement("return object.$L", getPk())
                 .build();
     }
 
@@ -331,10 +312,10 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .returns(TypeName.INT)
                 .addStatement("$T affectedRows = client.executeUpdateDelete($S, $L, $L)",
                         TypeName.INT, "UPDATE " + mTableName + " SET " +
-                                Strings.transformAndJoin(", ", mFieldToColumn.values(), new ColumnBinder(), 1) +
+                                Strings.transformAndJoin(", ", mFieldToColumn.values(), new ColumnBinder()) +
                                 " WHERE _id = ?;",
-                        Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField(), 1),
-                        "object." + mPrimaryKey)
+                        Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField()),
+                        "object." + getPk())
                 .beginControlFlow("if (affectedRows > 0)")
                 .addStatement("$T.notifyChange($T.class)",
                         ClassName.get("droidkit.sqlite", "SQLiteSchema"),
@@ -351,7 +332,7 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .addParameter(ClassName.get(getOrigin()), "object")
                 .returns(TypeName.INT)
                 .addStatement("$T affectedRows = client.executeUpdateDelete($S, $L)", TypeName.INT,
-                        "DELETE FROM " + mTableName + " WHERE _id = ?;", "object." + mPrimaryKey)
+                        "DELETE FROM " + mTableName + " WHERE _id = ?;", "object." + getPk())
                 .beginControlFlow("if (affectedRows > 0)")
                 .addStatement("$T.notifyChange($T.class)",
                         ClassName.get("droidkit.sqlite", "SQLiteSchema"),
@@ -401,6 +382,10 @@ public class SQLiteObjectScanner extends ElementScanner {
     }
     //endregion
 
+    private String getPk() {
+        return getPrimaryKey().call();
+    }
+
     //region reactive functions
     private static class ColumnBinder implements Func1<String, String> {
 
@@ -419,90 +404,10 @@ public class SQLiteObjectScanner extends ElementScanner {
         }
 
     }
-
-    private static class SetterOnly implements Func1<ExecutableElement, Boolean> {
-
-        private final Map<String, String> mFieldToSetter;
-
-        private SetterOnly(Map<String, String> fieldToSetter) {
-            mFieldToSetter = fieldToSetter;
-        }
-
-        @Override
-        public Boolean call(ExecutableElement method) {
-            return mFieldToSetter.containsKey(method.getSimpleName().toString());
-        }
-
-    }
     //endregion
 
-    //region javac magic
-    private static class SetterTranslator extends TreeTranslator {
-
-        private final TreeMaker mTreeMaker;
-
-        private final Names mNames;
-
-        private final String mPackageName;
-
-        private final String mClassName;
-
-        private final String mFieldName;
-
-        private final String mColumnName;
-
-        private final String mPrimaryKey;
-
-        public SetterTranslator(JavacProcessingEnvironment env, ClassName className, String fieldName,
-                                String columnName, String primaryKey) {
-            mTreeMaker = TreeMaker.instance(env.getContext());
-            mNames = Names.instance(env.getContext());
-            mPackageName = className.packageName();
-            mClassName = className.simpleName();
-            mFieldName = fieldName;
-            mColumnName = columnName;
-            mPrimaryKey = primaryKey;
-        }
-
-        @Override
-        public void visitMethodDef(JCTree.JCMethodDecl methodDecl) {
-            super.visitMethodDef(methodDecl);
-            methodDecl.body.stats = com.sun.tools.javac.util.List.<JCTree.JCStatement>of(
-                    mTreeMaker.Try(
-                            mTreeMaker.Block(0, methodDecl.body.stats),
-                            com.sun.tools.javac.util.List.<JCTree.JCCatch>nil(),
-                            mTreeMaker.Block(0, com.sun.tools.javac.util.List.<JCTree.JCStatement>of(
-                                    mTreeMaker.Exec(mTreeMaker.Apply(
-                                            com.sun.tools.javac.util.List.<JCTree.JCExpression>nil(),
-                                            ident(mPackageName, mClassName, "update"),
-                                            com.sun.tools.javac.util.List.of(
-                                                    JCLiterals.stringValue(mTreeMaker, mColumnName),
-                                                    thisIdent(mFieldName), thisIdent(mPrimaryKey)
-                                            )
-                                    ))
-                            ))
-                    )
-            );
-            this.result = methodDecl;
-        }
-
-        private JCTree.JCExpression ident(String... selectors) {
-            final Iterator<String> iterator = Arrays.asList(selectors).iterator();
-            JCTree.JCExpression selector = mTreeMaker.Ident(mNames.fromString(iterator.next()));
-            while (iterator.hasNext()) {
-                selector = mTreeMaker.Select(selector, mNames.fromString(iterator.next()));
-            }
-            return selector;
-        }
-
-        private JCTree.JCExpression thisIdent(String name) {
-            return mTreeMaker.Select(mTreeMaker.Ident(mNames._this), mNames.fromString(name));
-        }
-
-    }
-    //endregion
-
-    private class ElementScannerImpl extends ElementScanner7<Void, Void> {
+    //region scanners
+    private class FieldScanner extends ElementScanner7<Void, Void> {
 
         @Override
         public Void visitVariable(VariableElement field, Void aVoid) {
@@ -516,12 +421,38 @@ public class SQLiteObjectScanner extends ElementScanner {
             return super.visitVariable(field, aVoid);
         }
 
+    }
+
+    private class RelationScanner extends ElementScanner7<Void, Void> {
+
+        @Override
+        public Void visitVariable(VariableElement field, Void aVoid) {
+            final SQLiteRelationVisitor visitor = new SQLiteRelationVisitor();
+            final Annotation annotation = visitor.getAnnotation(getEnv(), field);
+            if (annotation != null) {
+                getEnv().<JCTree.JCVariableDecl>getTree(field).mods.flags &= ~Flags.PRIVATE;
+                visitor.visit(SQLiteObjectScanner.this, getEnv(), field, annotation);
+            }
+            return super.visitVariable(field, aVoid);
+        }
+
+    }
+
+    private class MethodScanner extends ElementScanner7<Void, Void> {
+
         @Override
         public Void visitExecutable(ExecutableElement method, Void aVoid) {
-            mMethods.add(method);
+            if (mActiveRecord && getOrigin().equals(method.getEnclosingElement())) {
+                final String methodName = method.getSimpleName().toString();
+                final Action1<ExecutableElement> action = mSetterActions.get(methodName);
+                if (action != null) {
+                    action.call(method);
+                }
+            }
             return super.visitExecutable(method, aVoid);
         }
 
     }
+    //endregion
 
 }
