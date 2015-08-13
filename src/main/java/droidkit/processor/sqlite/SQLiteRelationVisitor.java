@@ -8,6 +8,7 @@ import droidkit.processor.ProcessingEnv;
 import droidkit.processor.Strings;
 import rx.functions.*;
 
+import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Name;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
@@ -34,11 +35,12 @@ class SQLiteRelationVisitor implements FieldVisitor {
     @Override
     public void visit(SQLiteObjectScanner scanner, final ProcessingEnv env, VariableElement field,
                       Annotation annotation) {
+        final SQLiteRelation aRel = field.getAnnotation(SQLiteRelation.class);
         final Relation relation = field.asType().accept(new SimpleTypeVisitor7<Relation, Void>() {
             @Override
             public Relation visitDeclared(DeclaredType t, Void aVoid) {
                 if (t.getTypeArguments().isEmpty()) {
-                    return t.asElement().accept(new OneToOneVisitor(), null);
+                    return t.asElement().accept(new OneToOneVisitor(aRel.setter()), null);
                 } else if (Objects.equals(List.class.getName(), t.asElement().toString())) {
                     return t.getTypeArguments().get(0).accept(new OneToManyVisitor(), null);
                 }
@@ -67,6 +69,7 @@ class SQLiteRelationVisitor implements FieldVisitor {
         }
     }
 
+    //region relations
     private interface Relation extends Func3<SQLiteObjectScanner, ProcessingEnv, VariableElement, String> {
 
     }
@@ -77,22 +80,38 @@ class SQLiteRelationVisitor implements FieldVisitor {
 
         private final String mRelTypeTable;
 
-        public OneToOneRelation(TypeMirror relType, String relTable) {
+        private final String mSetterName;
+
+        public OneToOneRelation(TypeMirror relType, String relTable, String setterName) {
             mRelType = relType;
             mRelTypeTable = relTable;
+            mSetterName = setterName;
         }
 
         @Override
-        public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
+        public String call(final SQLiteObjectScanner scanner, final ProcessingEnv env, final VariableElement field) {
             final String relTable = scanner.getTableName() + "_" + mRelTypeTable;
             final String relQuery = String.format(Locale.US, "SELECT %1$s.* FROM %1$s, %3$s" +
                             " WHERE %1$s._id=%3$s.%1$s_id" +
                             " AND %3$s.%2$s_id = ?;",
                     mRelTypeTable, scanner.getTableName(), relTable);
+            final String fieldName = field.getSimpleName().toString();
             scanner.instantiateAction(new OneToOneRelationInstantiateFunc()
                     .call(field.getSimpleName(), mRelType, relQuery));
             scanner.saveAction(new OneToOneRelationSaveFunc().call(field.getSimpleName(), mRelType, relTable,
                     scanner.getPrimaryKey()));
+            scanner.oneToOneRelation(mRelType);
+            scanner.setterAction(SQLiteColumnVisitor.canonicalSetterName(fieldName, mSetterName),
+                    new Action1<ExecutableElement>() {
+                        @Override
+                        public void call(ExecutableElement method) {
+                            env.getTree(method).accept(new SQLiteRelationSetter(
+                                    env.getJavacEnv(),
+                                    ClassName.get(scanner.getPackageName(), scanner.getClassName()),
+                                    fieldName, env.asElement(mRelType).getSimpleName(), scanner.getPrimaryKey()
+                            ));
+                        }
+                    });
             return mRelTypeTable;
         }
 
@@ -136,13 +155,20 @@ class SQLiteRelationVisitor implements FieldVisitor {
     }
 
     private static class OneToOneVisitor extends SimpleElementVisitor7<Relation, Void> {
+
+        private final String mSetterName;
+
+        public OneToOneVisitor(String setterName) {
+            mSetterName = setterName;
+        }
+
         @Override
         public Relation visitType(TypeElement e, Void aVoid) {
             final SQLiteObject annotation = e.getAnnotation(SQLiteObject.class);
             if (annotation == null) {
                 return new UnsupportedRelation();
             } else {
-                return new OneToOneRelation(e.asType(), annotation.value());
+                return new OneToOneRelation(e.asType(), annotation.value(), mSetterName);
             }
         }
     }
@@ -178,7 +204,9 @@ class SQLiteRelationVisitor implements FieldVisitor {
         }
 
     }
+    //endregion
 
+    //region functions
     private static class OneToOneRelationSaveFunc
             implements Func4<Name, TypeMirror, String, Func0<String>, Action1<CodeBlock.Builder>> {
 
@@ -245,5 +273,6 @@ class SQLiteRelationVisitor implements FieldVisitor {
         }
 
     }
+    //endregion
 
 }

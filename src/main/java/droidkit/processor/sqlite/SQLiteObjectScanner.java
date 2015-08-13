@@ -11,10 +11,8 @@ import rx.functions.Action1;
 import rx.functions.Func0;
 import rx.functions.Func1;
 
-import javax.lang.model.element.ExecutableElement;
-import javax.lang.model.element.Modifier;
-import javax.lang.model.element.TypeElement;
-import javax.lang.model.element.VariableElement;
+import javax.lang.model.element.*;
+import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.ElementScanner7;
 import javax.tools.JavaFileObject;
 import java.io.BufferedWriter;
@@ -48,6 +46,8 @@ public class SQLiteObjectScanner extends ElementScanner {
     private final List<Action1<CodeBlock.Builder>> mSaveActions = new ArrayList<>();
 
     private final Map<String, Action1<ExecutableElement>> mSetterActions = new LinkedHashMap<>();
+
+    private final Set<TypeMirror> mOneToOneRelations = new HashSet<>();
 
     private final String mTableName;
 
@@ -152,6 +152,10 @@ public class SQLiteObjectScanner extends ElementScanner {
         mDropRelations.add(index);
     }
 
+    void oneToOneRelation(TypeMirror relType) {
+        mOneToOneRelations.add(relType);
+    }
+
     //region implementation
     private ClassName brewJava() {
         final TypeSpec typeSpec = TypeSpec.classBuilder(getClassName())
@@ -170,6 +174,7 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .addMethod(updateWithClient())
                 .addMethod(updateIfActive())
                 .addMethod(remove())
+                .addMethods(setupRelations())
                 .addOriginatingElement(getOrigin())
                 .build();
         final JavaFile javaFile = JavaFile.builder(getPackageName(), typeSpec)
@@ -364,6 +369,35 @@ public class SQLiteObjectScanner extends ElementScanner {
                 .endControlFlow()
                 .addStatement("return affectedRows")
                 .build();
+    }
+
+    private List<MethodSpec> setupRelations() {
+        final List<MethodSpec> methods = new ArrayList<>();
+        for (final TypeMirror relType : mOneToOneRelations) {
+            final Element element = getEnv().asElement(relType);
+            final String relTypeTable = element.getAnnotation(SQLiteObject.class).value();
+            final String relTable = mTableName + "_" + relTypeTable;
+            methods.add(MethodSpec.methodBuilder("setup" + element.getSimpleName() + "Relation")
+                    .addModifiers(Modifier.STATIC)
+                    .addParameter(ClassName.get(relType), "object")
+                    .addParameter(TypeName.LONG, "rowId")
+                    .beginControlFlow("if (rowId > 0 && sClientRef != null)")
+                    .addStatement("final $T client = sClientRef.get()",
+                            ClassName.get("droidkit.sqlite", "SQLiteClient"))
+                    .beginControlFlow("if (client != null)")
+                    .addStatement("final long relId = $T$$SQLiteHelper.save(client, object)", ClassName.get(relType))
+                    .addStatement("final int affectedRows = client.executeUpdateDelete($S, relId, rowId)",
+                            String.format(Locale.US, "UPDATE %s SET %s_id = ? WHERE %s_id = ?;",
+                                    relTable, relTypeTable, mTableName))
+                    .beginControlFlow("if (affectedRows == 0)")
+                    .addStatement("client.executeInsert($S, rowId, relId)",
+                            "INSERT INTO " + relTable + " VALUES(?, ?);")
+                    .endControlFlow()
+                    .endControlFlow()
+                    .endControlFlow()
+                    .build());
+        }
+        return methods;
     }
 
     private void attachHelperToProvider(JavaFile javaFile, TypeSpec typeSpec) {
