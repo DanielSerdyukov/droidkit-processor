@@ -51,7 +51,7 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final Map<String, String> mSetterToField = new LinkedHashMap<>();
 
-    private final CodeBlock.Builder mInstantiateBlock = CodeBlock.builder();
+    private final List<Action1<CodeBlock.Builder>> mInstantiateActions = new ArrayList<>();
 
     private final List<Action1<CodeBlock.Builder>> mSaveActions = new ArrayList<>();
 
@@ -151,8 +151,8 @@ public class SQLiteObjectScanner extends ElementScanner {
         }
     }
 
-    void addInstantiateStatement(CodeBlock codeBlock) {
-        mInstantiateBlock.add(codeBlock);
+    void instantiateAction(Action1<CodeBlock.Builder> action) {
+        mInstantiateActions.add(action);
     }
 
     void saveAction(Action1<CodeBlock.Builder> action) {
@@ -278,12 +278,16 @@ public class SQLiteObjectScanner extends ElementScanner {
     }
 
     private MethodSpec instantiate() {
+        final CodeBlock.Builder statements = CodeBlock.builder();
+        for (final Action1<CodeBlock.Builder> action : mInstantiateActions) {
+            action.call(statements);
+        }
         return MethodSpec.methodBuilder("instantiate")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .addParameter(ClassName.get("android.database", "Cursor"), "cursor")
                 .returns(ClassName.get(getOrigin()))
                 .addStatement("final $1T object = new $1T()", ClassName.get(getOrigin()))
-                .addCode(mInstantiateBlock.build())
+                .addCode(statements.build())
                 .addStatement("return object")
                 .build();
     }

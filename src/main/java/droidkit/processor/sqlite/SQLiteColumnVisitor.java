@@ -30,7 +30,7 @@ class SQLiteColumnVisitor implements FieldVisitor {
         scanner.addColumnDef(columnName + conversion.sqliteType());
         scanner.putFieldToColumn(fieldName, columnName);
         scanner.putFieldToSetter(fieldName, column.setter());
-        scanner.addInstantiateStatement(conversion.javaType(fieldName, columnName, field.asType()));
+        scanner.instantiateAction(conversion.convertToJavaType(fieldName, columnName, field.asType()));
         if (column.index()) {
             scanner.createIndex(new Func0<String>() {
                 @Override

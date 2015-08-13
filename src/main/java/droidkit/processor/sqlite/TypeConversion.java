@@ -1,14 +1,13 @@
 package droidkit.processor.sqlite;
 
 import com.squareup.javapoet.CodeBlock;
-
-import java.util.Arrays;
-import java.util.List;
+import droidkit.processor.ProcessingEnv;
+import rx.functions.Action1;
 
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
-
-import droidkit.processor.ProcessingEnv;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * @author Daniel Serdyukov
@@ -34,6 +33,6 @@ interface TypeConversion {
 
     String sqliteType();
 
-    CodeBlock javaType(String fieldName, String columnName, TypeMirror type);
+    Action1<CodeBlock.Builder> convertToJavaType(String fieldName, String columnName, TypeMirror type);
 
 }

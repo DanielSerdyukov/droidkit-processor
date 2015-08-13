@@ -85,8 +85,10 @@ class SQLiteRelationVisitor implements FieldVisitor {
 
         @Override
         public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
-            scanner.addInstantiateStatement(CodeBlock.builder()
-                    .addStatement("object.$L = $T.getFirst($T.rawQuery($T.class, $S, $T.getLong(cursor, $S)))",
+            scanner.instantiateAction(new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.addStatement("object.$L = $T.getFirst($T.rawQuery($T.class, $S, $T.getLong(cursor, $S)))",
                             field.getSimpleName(),
                             ClassName.get("droidkit.util", "Lists"),
                             ClassName.get("droidkit.sqlite", "SQLite"),
@@ -96,7 +98,9 @@ class SQLiteRelationVisitor implements FieldVisitor {
                                             " AND %2$s_%1$s.%2$s_id = ?;",
                                     mRelTable, scanner.getTableName()),
                             ClassName.get("droidkit.util", "Cursors"), "_id")
-                    .build());
+                            .build();
+                }
+            });
             scanner.saveAction(new Action1<CodeBlock.Builder>() {
                 @Override
                 public void call(CodeBlock.Builder builder) {
@@ -125,8 +129,10 @@ class SQLiteRelationVisitor implements FieldVisitor {
 
         @Override
         public String call(final SQLiteObjectScanner scanner, ProcessingEnv env, final VariableElement field) {
-            scanner.addInstantiateStatement(CodeBlock.builder()
-                    .addStatement("object.$L = $T.rawQuery($T.class, $S, $T.getLong(cursor, $S))",
+            scanner.instantiateAction(new Action1<CodeBlock.Builder>() {
+                @Override
+                public void call(CodeBlock.Builder builder) {
+                    builder.addStatement("object.$L = $T.rawQuery($T.class, $S, $T.getLong(cursor, $S))",
                             field.getSimpleName(),
                             ClassName.get("droidkit.sqlite", "SQLite"),
                             ClassName.get(mRelType),
@@ -135,7 +141,9 @@ class SQLiteRelationVisitor implements FieldVisitor {
                                             " AND %2$s_%1$s.%2$s_id = ?;",
                                     mRelTable, scanner.getTableName()),
                             ClassName.get("droidkit.util", "Cursors"), "_id")
-                    .build());
+                            .build();
+                }
+            });
             scanner.saveAction(new Action1<CodeBlock.Builder>() {
                 @Override
                 public void call(CodeBlock.Builder builder) {

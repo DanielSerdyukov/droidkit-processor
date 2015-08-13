@@ -2,11 +2,11 @@ package droidkit.processor.sqlite;
 
 import com.squareup.javapoet.ClassName;
 import com.squareup.javapoet.CodeBlock;
+import droidkit.processor.ProcessingEnv;
+import rx.functions.Action1;
 
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeMirror;
-
-import droidkit.processor.ProcessingEnv;
 
 /**
  * @author Daniel Serdyukov
@@ -24,11 +24,15 @@ class StringConversion implements TypeConversion {
     }
 
     @Override
-    public CodeBlock javaType(String fieldName, String columnName, TypeMirror type) {
-        return CodeBlock.builder()
-                .addStatement("object.$L = $T.getString(cursor, $S)", fieldName,
-                        ClassName.get("droidkit.util", "Cursors"), columnName)
-                .build();
+    public Action1<CodeBlock.Builder> convertToJavaType(final String fieldName, final String columnName,
+                                                        TypeMirror type) {
+        return new Action1<CodeBlock.Builder>() {
+            @Override
+            public void call(CodeBlock.Builder builder) {
+                builder.addStatement("object.$L = $T.getString(cursor, $S)", fieldName,
+                        ClassName.get("droidkit.util", "Cursors"), columnName);
+            }
+        };
     }
 
 }
