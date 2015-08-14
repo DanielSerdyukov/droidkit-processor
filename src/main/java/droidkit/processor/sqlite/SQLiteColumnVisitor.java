@@ -56,7 +56,7 @@ class SQLiteColumnVisitor implements FieldVisitor {
         });
         scanner.instantiateAction(conversion.convertToJavaType(fieldName, columnName, field.asType()));
         if (column.index()) {
-            scanner.createIndex(new Func0<String>() {
+            scanner.index(new Func0<String>() {
                 @Override
                 public String call() {
                     return "CREATE INDEX IF NOT EXISTS idx_" + tableName + "_" + columnName +

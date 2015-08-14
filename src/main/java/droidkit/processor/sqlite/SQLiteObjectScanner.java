@@ -35,6 +35,8 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final List<Func0<String>> mIndices = new ArrayList<>();
 
+    private final List<Func0<String>> mTriggers = new ArrayList<>();
+
     private final List<Func0<String>> mCreateRelations = new ArrayList<>();
 
     private final List<Func0<String>> mDropRelations = new ArrayList<>();
@@ -140,8 +142,12 @@ public class SQLiteObjectScanner extends ElementScanner {
         mSaveActions.add(action);
     }
 
-    void createIndex(Func0<String> index) {
+    void index(Func0<String> index) {
         mIndices.add(index);
+    }
+
+    void trigger(Func0<String> trigger) {
+        mTriggers.add(trigger);
     }
 
     void createRelation(Func0<String> index) {
@@ -239,10 +245,13 @@ public class SQLiteObjectScanner extends ElementScanner {
     }
 
     private MethodSpec createTriggers() {
-        return MethodSpec.methodBuilder("createTriggers")
+        final MethodSpec.Builder builder = MethodSpec.methodBuilder("createTriggers")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
-                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db")
-                .build();
+                .addParameter(ClassName.get("droidkit.sqlite", "SQLiteDb"), "db");
+        for (final Func0<String> trigger : mTriggers) {
+            builder.addStatement("db.compileStatement($S).execute()", trigger.call());
+        }
+        return builder.build();
     }
 
     private MethodSpec dropTable() {

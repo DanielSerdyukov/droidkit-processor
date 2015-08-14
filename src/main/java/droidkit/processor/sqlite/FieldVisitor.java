@@ -14,7 +14,8 @@ interface FieldVisitor {
 
     List<FieldVisitor> SUPPORTED = Arrays.asList(
             new SQLitePkVisitor(),
-            new SQLiteColumnVisitor()
+            new SQLiteColumnVisitor(),
+            new SQLiteFkVisitor()
     );
 
     Annotation getAnnotation(ProcessingEnv processingEnv, VariableElement field);

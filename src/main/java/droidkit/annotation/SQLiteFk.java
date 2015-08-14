@@ -10,9 +10,11 @@ import java.lang.annotation.Target;
  */
 @Target({ElementType.FIELD})
 @Retention(RetentionPolicy.SOURCE)
-public @interface SQLitePk {
+public @interface SQLiteFk {
 
-    int value() default 5; // SQLiteDatabase.CONFLICT_REPLACE
+    Class<?> value();
+
+    boolean strict() default true;
 
     String setter() default "";
 
