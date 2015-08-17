@@ -82,6 +82,7 @@ abstract class LifecycleScanner extends ElementScanner {
     private void brewJava() {
         final ClassName injector = mViewInjector.brewJava(getEnv(), getOrigin());
         final TypeSpec typeSpec = TypeSpec.classBuilder(getOrigin().getSimpleName() + "$Proxy")
+                .addModifiers(Modifier.ABSTRACT)
                 .superclass(ClassName.get(getOrigin().getSuperclass()))
                 .addOriginatingElement(getOrigin())
                 .addFields(fields())
