@@ -55,7 +55,7 @@ public class SQLiteObjectScanner extends ElementScanner {
 
     private final boolean mActiveRecord;
 
-    private final List<String> mUniqueOn;
+    private String mUniqueConstraint;
 
     private Func0<String> mPrimaryKey;
 
@@ -64,7 +64,11 @@ public class SQLiteObjectScanner extends ElementScanner {
         final SQLiteObject annotation = originType.getAnnotation(SQLiteObject.class);
         mTableName = annotation.value();
         mActiveRecord = annotation.activeRecord();
-        mUniqueOn = Arrays.asList(annotation.uniqueOn());
+        final String[] uniqueOn = annotation.uniqueOn();
+        if (uniqueOn.length > 0) {
+            mUniqueConstraint = "UNIQUE(" + Strings.join(", ", Arrays.asList(uniqueOn)) + ")" +
+                    ConflictResolution.get(annotation.uniqueConflictClause());
+        }
     }
 
     public static void brewMetaClass(ProcessingEnv env) {
@@ -91,8 +95,8 @@ public class SQLiteObjectScanner extends ElementScanner {
         getOrigin().accept(new FieldScanner(), null);
         getOrigin().accept(new RelationScanner(), null);
         getOrigin().accept(new MethodScanner(), null);
-        if (!mUniqueOn.isEmpty()) {
-            mColumnsDef.add("UNIQUE(" + Strings.join(", ", mUniqueOn) + ")");
+        if (!Strings.isNullOrEmpty(mUniqueConstraint)) {
+            mColumnsDef.add(mUniqueConstraint);
         }
         brewJava();
     }

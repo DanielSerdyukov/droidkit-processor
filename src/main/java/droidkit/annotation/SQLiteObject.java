@@ -18,4 +18,6 @@ public @interface SQLiteObject {
 
     String[] uniqueOn() default {};
 
+    int uniqueConflictClause() default 5;
+
 }
