@@ -217,8 +217,8 @@ class SQLiteRelationVisitor implements FieldVisitor {
                 @Override
                 public void call(CodeBlock.Builder builder) {
                     builder.beginControlFlow("if(object.$L != null)", fieldName);
-                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, object.$L)",
-                            ClassName.get(relType), fieldName);
+                    builder.addStatement("final long relId = $T.save(client, object.$L)",
+                            ClassName.bestGuess(relType.toString() + "$SQLiteHelper"), fieldName);
                     builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
                             "INSERT INTO %s VALUES(? , ?);", relTable), primaryKey.call());
                     builder.endControlFlow();
@@ -259,8 +259,8 @@ class SQLiteRelationVisitor implements FieldVisitor {
                     builder.beginControlFlow("for (final $T relEntry : object.$L)",
                             ClassName.get(relType),
                             fieldName);
-                    builder.addStatement("final long relId = $T$$SQLiteHelper.save(client, relEntry)",
-                            ClassName.get(relType));
+                    builder.addStatement("final long relId = $T.save(client, relEntry)",
+                            ClassName.bestGuess(relType.toString() + "$SQLiteHelper"));
                     builder.addStatement("client.executeInsert($S, object.$L, relId)", String.format(Locale.US,
                             "INSERT INTO %s VALUES(? , ?);", relTable), primaryKey.call());
                     builder.endControlFlow();
