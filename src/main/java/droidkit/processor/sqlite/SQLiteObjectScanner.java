@@ -296,17 +296,23 @@ public class SQLiteObjectScanner extends ElementScanner {
         for (final Action1<CodeBlock.Builder> action : mSaveActions) {
             action.call(saveActions);
         }
-        return MethodSpec.methodBuilder("save")
+        final MethodSpec.Builder builder = MethodSpec.methodBuilder("save")
                 .addModifiers(Modifier.PUBLIC, Modifier.STATIC)
                 .addParameter(ClassName.get("droidkit.sqlite", "SQLiteClient"), "client")
                 .addParameter(ClassName.get(getOrigin()), "object")
                 .returns(TypeName.LONG)
-                .beginControlFlow("if (object.$L > 0)", getPk())
-                .addStatement("object.$1L = client.executeInsert($2S, object.$1L, $3L)", getPk(),
-                        String.format(Locale.US, "INSERT INTO %s(_id, %s) VALUES(?, %s);", mTableName,
-                                Strings.join(", ", mFieldToColumn.values()),
-                                Strings.join(", ", Collections.nCopies(mFieldToColumn.size(), "?"))),
-                        Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField()))
+                .beginControlFlow("if (object.$L > 0)", getPk());
+        if (!mFieldToColumn.isEmpty()) {
+            builder.addStatement("object.$1L = client.executeInsert($2S, object.$1L, $3L)", getPk(),
+                    String.format(Locale.US, "INSERT INTO %s(_id, %s) VALUES(?, %s);", mTableName,
+                            Strings.join(", ", mFieldToColumn.values()),
+                            Strings.join(", ", Collections.nCopies(mFieldToColumn.size(), "?"))),
+                    Strings.transformAndJoin(", ", mFieldToColumn.keySet(), new ObjectField()));
+        } else {
+            builder.addStatement("object.$1L = client.executeInsert($2S, object.$1L)", getPk(),
+                    String.format(Locale.US, "INSERT INTO %s(_id) VALUES(?);", mTableName));
+        }
+        return builder
                 .nextControlFlow("else")
                 .addStatement("object.$L = client.executeInsert($S, $L)", getPk(),
                         String.format(Locale.US, "INSERT INTO %s(%s) VALUES(%s);", mTableName,
